@@ -1,0 +1,5 @@
+*.secret
+config.json
+s3.py
+config.yaml
+logs/*
