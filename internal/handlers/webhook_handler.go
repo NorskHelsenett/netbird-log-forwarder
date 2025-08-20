@@ -23,13 +23,15 @@ func RecieveEvent(ginContext *gin.Context) {
 		return
 	}
 
-	// logger.Log.Infow("Received request", "request", request)
 	logger.Log.Infow("Received request", "request", request)
+	// logger.Log.Infoln(request)
+
 	// jsonBytes, err := json.MarshalIndent(request, "", "  ")
 	// if err != nil {
 	// 	fmt.Println("Failed to marshal request:", err)
 	// } else {
-	// 	fmt.Println("Request received:\n", string(jsonBytes))
+	// 	logger.Log.Infoln(string(jsonBytes))
+	// 	// fmt.Println("Request received:\n", string(jsonBytes))
 	// }
 
 	// var response any

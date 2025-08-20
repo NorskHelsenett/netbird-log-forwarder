@@ -53,10 +53,6 @@ func (pc *PeerCache) refresh() error {
 		cache[peer.ID] = peer
 	}
 
-	// for _, peer := range peers {
-	// 	cache[peer.ID] = peer
-	// }
-
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	pc.peersByID = cache
