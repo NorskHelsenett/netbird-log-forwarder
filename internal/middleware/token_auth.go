@@ -3,20 +3,19 @@ package middleware
 import (
 	"crypto/subtle"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-func LoadToken(path string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	// Trim newline
-	return strings.TrimSpace(string(b)), nil
-}
+// func LoadToken(path string) (string, error) {
+// 	b, err := os.ReadFile(path)
+// 	if err != nil {
+// 		return "", err
+// 	}
+// 	// Trim newline
+// 	return strings.TrimSpace(string(b)), nil
+// }
 
 func TokenAuthMiddleware(expectedToken string) gin.HandlerFunc {
 	exp := []byte(expectedToken)
