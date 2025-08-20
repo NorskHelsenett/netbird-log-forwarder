@@ -57,8 +57,9 @@ func main() {
 
 	// Start web server in a goroutine
 	_, serverCancel := context.WithCancel(context.Background())
+	auth_token := viper.GetString("api.auth_token")
 	go func() {
-		webserver.InitHttpServer()
+		webserver.InitHttpServer(auth_token)
 	}()
 
 	// Wait for termination signal
