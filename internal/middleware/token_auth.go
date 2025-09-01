@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/NorskHelsenett/netbird-log-forwarder/internal/logger"
 	"github.com/gin-gonic/gin"
 )
 
@@ -26,6 +27,7 @@ func TokenAuthMiddleware(expectedToken string) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": "unauthorized",
 			})
+			logger.Log.Warnf("Unauthorized request from %s", c.ClientIP())
 			return
 		}
 		c.Next()
