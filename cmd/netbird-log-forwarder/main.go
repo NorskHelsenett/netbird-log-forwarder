@@ -22,11 +22,17 @@ func main() {
 	}
 	logger.Log.Infoln("Zap logger initialized successfully")
 
-	used, err := settings.InitConfig("./config.yaml")
+	configFile, err := settings.InitConfig("./config.yaml")
 	if err != nil {
 		logger.Log.Fatalf("config init failed: %v", err)
 	}
-	logger.Log.Infof("Config file %s loaded successfully", used)
+	logger.Log.Infof("Config file %s loaded successfully", configFile)
+
+	secretsFile, err := settings.InitSecrets("./secrets.yaml")
+	if err != nil {
+		logger.Log.Fatalf("secrets init failed: %v", err)
+	}
+	logger.Log.Infof("Secrets file %s loaded successfully", secretsFile)
 
 	netbirdToken := viper.GetString("netbird.token")
 	err = netbird.NewUserCache(netbirdToken)
@@ -57,8 +63,9 @@ func main() {
 
 	// Start web server in a goroutine
 	_, serverCancel := context.WithCancel(context.Background())
+	auth_token := viper.GetString("api.auth_token")
 	go func() {
-		webserver.InitHttpServer()
+		webserver.InitHttpServer(auth_token)
 	}()
 
 	// Wait for termination signal
