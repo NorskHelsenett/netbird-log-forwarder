@@ -2,4 +2,5 @@
 config.json
 s3.py
 config.yaml
+secrets.yaml
 logs/*
