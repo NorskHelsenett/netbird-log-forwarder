@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -16,23 +17,22 @@ import (
 )
 
 func main() {
+	configFile, err := settings.InitConfig("./config.yaml")
+	if err != nil {
+		fmt.Printf("config init failed: %v", err)
+	}
+	fmt.Printf("Config file %s loaded successfully", configFile)
+
+	secretsFile, err := settings.InitSecrets("./secrets.yaml")
+	if err != nil {
+		fmt.Printf("secrets init failed: %v", err)
+	}
+	fmt.Printf("Secrets file %s loaded successfully", secretsFile)
 
 	if err := logger.InitLogger("./logs"); err != nil {
 		log.Fatalf("logger init failed: %v", err)
 	}
 	logger.Log.Infoln("Zap logger initialized successfully")
-
-	configFile, err := settings.InitConfig("./config.yaml")
-	if err != nil {
-		logger.Log.Fatalf("config init failed: %v", err)
-	}
-	logger.Log.Infof("Config file %s loaded successfully", configFile)
-
-	secretsFile, err := settings.InitSecrets("./secrets.yaml")
-	if err != nil {
-		logger.Log.Fatalf("secrets init failed: %v", err)
-	}
-	logger.Log.Infof("Secrets file %s loaded successfully", secretsFile)
 
 	netbirdToken := viper.GetString("netbird.token")
 	err = netbird.NewUserCache(netbirdToken)

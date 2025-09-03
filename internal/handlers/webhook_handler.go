@@ -1,49 +1,121 @@
 package handlers
 
 import (
-	// "net/http"
-
-	"fmt"
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 
-	// "github.com/NorskHelsenett/netbird-log-forwarder/internal/services"
-	// "github.com/NorskHelsenett/netbird-log-forwarder/pkg/models/apicontracts"
 	"github.com/NorskHelsenett/netbird-log-forwarder/internal/logger"
+	"github.com/NorskHelsenett/netbird-log-forwarder/internal/services"
+	"github.com/NorskHelsenett/netbird-log-forwarder/pkg/models/apicontracts"
 	"github.com/gin-gonic/gin"
 )
 
-func RecieveEvent(ginContext *gin.Context) {
-	var request any //apicontracts.TrafficEvent
-	err := ginContext.ShouldBindJSON(&request)
+type messagePreview struct {
+	Message string `json:"message"`
+}
 
+func RecieveEvent(ginContext *gin.Context) {
+	requestBody, err := io.ReadAll(ginContext.Request.Body)
 	if err != nil {
-		ginContext.Error(err)
-		ginContext.JSON(http.StatusBadRequest, gin.H{"message": "Could not parse incomming request"})
-		fmt.Println(err)
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": "could not read request body"})
 		return
 	}
+	ginContext.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
-	logger.Log.Infow("Received request", "request", request)
-	// logger.Log.Infoln(request)
+	var preview messagePreview
+	_ = json.Unmarshal(requestBody, &preview)
 
-	// jsonBytes, err := json.MarshalIndent(request, "", "  ")
-	// if err != nil {
-	// 	fmt.Println("Failed to marshal request:", err)
-	// } else {
-	// 	logger.Log.Infoln(string(jsonBytes))
-	// 	// fmt.Println("Request received:\n", string(jsonBytes))
-	// }
+	switch {
+	case looksLikeTrafficEvent(preview.Message):
+		logger.Log.Debugln("Processing traffic event")
+		var event apicontracts.TrafficEvent
+		eventBody := json.NewDecoder(bytes.NewReader(requestBody))
+		eventBody.DisallowUnknownFields()
 
-	// var response any
-	httpStatus := http.StatusOK
+		if err := eventBody.Decode(&event); err != nil {
+			ginContext.JSON(http.StatusBadRequest, gin.H{"message": "invalid traffic payload", "error": err.Error()})
+			return
+		}
 
-	// response, err = services.ProcessTrafficEvent(request)
-	// if err != nil {
-	// 	ginContext.Error(err)
-	// 	ginContext.JSON(http.StatusInternalServerError, gin.H{"message": "ERROR: " + err.Error()})
-	// 	return
-	// }
+		_, err := services.ProcessTrafficEvent(event)
+		if err != nil {
+			ginContext.Error(err)
+			ginContext.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+			return
+		}
 
-	ginContext.JSON(httpStatus, gin.H{"message": "Event processed successfully"})
+		// logger.SplunkTraffic.Infow("traffic_event", "event", evt)
+		ginContext.JSON(http.StatusAccepted, gin.H{"status": "ok", "handled_as": "traffic"})
+		return
+	case looksLikeAuditEvent(preview.Message):
+		logger.Log.Debugln("Processing audit event")
 
+		// Log the request body in pretty JSON format
+		var prettyBody bytes.Buffer
+		if err := json.Indent(&prettyBody, requestBody, "", "  "); err != nil {
+			logger.Log.Errorf("Failed to pretty-print request body: %v", err)
+		} else {
+			logger.Log.Infof("Received request body:\n%s", prettyBody.String())
+		}
+
+		var event apicontracts.AuditEvent
+		eventBody := json.NewDecoder(bytes.NewReader(requestBody))
+		// eventBody.DisallowUnknownFields()
+
+		if err := eventBody.Decode(&event); err != nil {
+			ginContext.JSON(http.StatusBadRequest, gin.H{"message": "invalid audit payload", "error": err.Error()})
+			return
+		}
+
+		_, err := services.ProcessAuditEvent(event)
+		if err != nil {
+			ginContext.Error(err)
+			ginContext.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+			return
+		}
+
+		// logger.SplunkTraffic.Infow("traffic_event", "event", evt)
+		ginContext.JSON(http.StatusAccepted, gin.H{"status": "ok", "handled_as": "audit"})
+		return
+	default:
+		logger.Log.Debugln("Unknown event type")
+		var event any
+		eventBody := json.NewDecoder(bytes.NewReader(requestBody))
+		// eventBody.DisallowUnknownFields()
+		if err := eventBody.Decode(&event); err != nil {
+			ginContext.JSON(http.StatusBadRequest, gin.H{"message": "invalid audit payload", "error": err.Error()})
+			return
+		}
+		prettyJSON, err := json.MarshalIndent(event, "", "  ")
+		if err != nil {
+			logger.Log.Errorf("Failed to marshal event to pretty JSON: %v", err)
+		} else {
+			logger.Log.Infof("Unknown event type:\n%s", prettyJSON)
+
+		}
+	}
+
+	ginContext.JSON(http.StatusOK, gin.H{"message": "Event processed successfully"})
+
+}
+
+func looksLikeTrafficEvent(msg string) bool {
+	switch strings.ToUpper(strings.TrimSpace(msg)) {
+	case "TYPE_START", "TYPE_END", "TYPE_DROP":
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeAuditEvent(msg string) bool {
+	switch strings.TrimSpace(msg) {
+	case "user blocked", "user unblocked", "peer approved":
+		return true
+	default:
+		return false
+	}
 }

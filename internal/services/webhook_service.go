@@ -1,7 +1,6 @@
 package services
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -16,14 +15,8 @@ import (
 
 func ProcessTrafficEvent(request apicontracts.TrafficEvent) (any, error) {
 
-	// valid := ValidateRequest(&request)
-
-	// if valid != nil {
-	// 	return nil, valid
-	// }
-
 	if !SplunktWorthy(request) {
-		return nil, fmt.Errorf("event is not splunk-worthy")
+		return nil, fmt.Errorf("skipping event")
 	}
 
 	sourcePeer, _ := netbird.GlobalPeerCache.GetPeerByID(request.Meta.SourceID)
@@ -51,19 +44,20 @@ func ProcessTrafficEvent(request apicontracts.TrafficEvent) (any, error) {
 		DstIP:      dstIp,
 		DstPort:    dstPortInt,
 		ExitNode:   exitNode.Hostname,
+		Message:    request.Message,
 	}
 
-	jsonBytes, err := json.MarshalIndent(splunkEvent, "", "  ")
+	// jsonBytes, err := json.MarshalIndent(splunkEvent, "", "  ")
 
-	if err != nil {
-		fmt.Println("Failed to marshal event:", err)
-	} else {
-		fmt.Println(string(jsonBytes))
-	}
+	// if err != nil {
+	// 	logger.Log.Warnf("Failed to marshal event:", err)
+	// } else {
+	// 	logger.Log.Infoln(string(jsonBytes))
+	// }
 
 	// logger.Log.Infow("netbird traffic event", "event", splunkEvent)
-	logger.Splunk.Infow(
-		"netbird traffic event",
+	logger.SplunkTraffic.Infow(
+		request.Message,
 		"time", splunkEvent.Time,
 		"protocol", splunkEvent.Protocol,
 		"src_ip", splunkEvent.SrcIP,
@@ -74,6 +68,59 @@ func ProcessTrafficEvent(request apicontracts.TrafficEvent) (any, error) {
 		"dst_port", splunkEvent.DstPort,
 		"exit_node", splunkEvent.ExitNode,
 	)
+
+	// logger.SplunkTraffic.Infow("", splunkEvent)
+
+	return request, nil
+
+}
+
+func ProcessAuditEvent(request apicontracts.AuditEvent) (any, error) {
+
+	user, _ := netbird.GlobalUserCache.GetUserByID(request.InitiatorID)
+	unixTime := float64(request.Timestamp.UnixNano()) / 1e9
+
+	splunkEvent := apicontracts.SplunkAuditEvent{
+		Time:                 unixTime,
+		User:                 user.Name,
+		LocationCityName:     request.Meta.LocationCityName,
+		LocationCountryCode:  request.Meta.LocationCountryCode,
+		LocationConnectionIp: request.Meta.LocationConnectionIp,
+		LocationGeoNameId:    request.Meta.LocationGeoNameId,
+		Ip:                   request.Meta.Ip,
+		Fqdn:                 request.Meta.Fqdn,
+	}
+
+	// jsonBytes, err := json.MarshalIndent(request, "", "  ")
+
+	// if err != nil {
+	// 	logger.Log.Warnf("Failed to marshal event:", err)
+	// } else {
+	// 	logger.Log.Infoln(string(jsonBytes))
+	// }
+
+	// logger.Log.Infow("netbird traffic event", "event", splunkEvent)
+	logger.SplunkAudit.Infow(
+		request.Message,
+		"time", splunkEvent.Time,
+		"user", splunkEvent.User,
+		"fqdn", splunkEvent.Fqdn,
+		"location_city_name", splunkEvent.LocationCityName,
+		"location_country_code", splunkEvent.LocationCountryCode,
+		"location_geo_name_id", splunkEvent.LocationGeoNameId,
+		"location_connection_ip", splunkEvent.LocationConnectionIp,
+		"ip", splunkEvent.Ip,
+		// "protocol", splunkEvent.Protocol,
+		// "src_ip", splunkEvent.SrcIP,
+		// "src_port", splunkEvent.SrcPort,
+		// "source_name", splunkEvent.SourceName,
+		// "email", splunkEvent.Email,
+		// "dst_ip", splunkEvent.DstIP,
+		// "dst_port", splunkEvent.DstPort,
+		// "exit_node", splunkEvent.ExitNode,
+	)
+
+	// logger.SplunkTraffic.Infow("", splunkEvent)
 
 	return request, nil
 

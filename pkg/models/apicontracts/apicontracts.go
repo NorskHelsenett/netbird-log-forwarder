@@ -34,24 +34,34 @@ type TrafficMeta struct {
 	UserID                string `json:"user_id"`
 }
 
+type AuditMeta struct {
+	CreatedAt            time.Time `json:"created_at"`
+	Fqdn                 string    `json:"fqdn"`
+	LocationCityName     string    `json:"location_city_name"`
+	LocationCountryCode  string    `json:"location_country_code"`
+	LocationConnectionIp string    `json:"location_connection_ip"`
+	LocationGeoNameId    int       `json:"location_geo_name_id"`
+	Ip                   string    `json:"ip"`
+}
+
 type TrafficEvent struct {
 	ID          string      `json:"ID"`
 	InitiatorID string      `json:"InitiatorID"`
 	Message     string      `json:"Message"`
 	Meta        TrafficMeta `json:"Meta"`
 	Reference   string      `json:"Reference"`
-	TargetID    string      `json:"TargetID"`
+	TargetID    string      `json:"target_id"`
 	Timestamp   time.Time   `json:"Timestamp"`
 }
 
 type AuditEvent struct {
-	ID          string      `json:"ID"`
-	InitiatorID string      `json:"InitiatorID"`
-	Message     string      `json:"Message"`
-	Meta        TrafficMeta `json:"Meta"`
-	Reference   string      `json:"Reference"`
-	TargetID    string      `json:"TargetID"`
-	Timestamp   time.Time   `json:"Timestamp"`
+	ID          int       `json:"ID"`
+	InitiatorID string    `json:"InitiatorID"`
+	Message     string    `json:"Message"`
+	Meta        AuditMeta `json:"meta"`
+	Reference   string    `json:"reference"`
+	TargetID    string    `json:"target_id"`
+	Timestamp   time.Time `json:"Timestamp"`
 }
 
 type SplunkTrafficEvent struct {
@@ -64,16 +74,17 @@ type SplunkTrafficEvent struct {
 	DstIP      string  `json:"dstip"`
 	DstPort    int     `json:"dstport"`
 	ExitNode   string  `json:"exitnode"`
+	Message    string  `json:"message"`
 }
 
 type SplunkAuditEvent struct {
-	Time       float64 `json:"time"`
-	Protocol   string  `json:"protocol"`
-	SrcIP      string  `json:"srcip"`
-	SrcPort    int     `json:"srcport"`
-	SourceName string  `json:"sourcename"`
-	Email      string  `json:"email"`
-	DstIP      string  `json:"dstip"`
-	DstPort    int     `json:"dstport"`
-	ExitNode   string  `json:"exitnode"`
+	Time                 float64 `json:"time"`
+	User                 string  `json:"user"`
+	Message              string  `json:"message"`
+	LocationCityName     string  `json:"location_city_name"`
+	LocationCountryCode  string  `json:"location_country_code"`
+	LocationConnectionIp string  `json:"location_connection_ip"`
+	LocationGeoNameId    int     `json:"location_geo_name_id"`
+	Ip                   string  `json:"ip"`
+	Fqdn                 string  `json:"fqdn"`
 }
