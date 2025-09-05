@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netbird-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netbird-log-forwarder.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    xlate:
+    {{- toYaml .Values.configMap.data.config.xlate | nindent 6 }}
+    splunk:
+    {{- toYaml .Values.configMap.data.config.splunk | nindent 6 }}
+
