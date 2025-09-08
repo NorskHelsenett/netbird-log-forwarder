@@ -13,29 +13,119 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-var Splunk *zap.SugaredLogger
-var Log *zap.SugaredLogger
+var (
+	// Splunk loggers
+	SplunkTraffic *zap.SugaredLogger
+	SplunkAudit   *zap.SugaredLogger
 
-type SplunkConfig struct {
-	Url   string
-	Token string
+	// App logger (console + file)
+	Log *zap.SugaredLogger
+)
+
+type SplunkHECWriter struct {
+	URL        string
+	Token      string
+	Index      string
+	Source     string
+	SourceType string
+	Host       string
+	Client     *resty.Client
+	PrintBody  bool // set true to debug payloads
+}
+
+func NewSplunkHECWriter(url, token, index, source, sourcetype, host string, timeout time.Duration) *SplunkHECWriter {
+	return &SplunkHECWriter{
+		URL:        url,
+		Token:      token,
+		Index:      index,
+		Source:     source,
+		SourceType: sourcetype,
+		Host:       host,
+		Client:     resty.New().SetTimeout(timeout),
+		PrintBody:  false,
+	}
+}
+
+func (w *SplunkHECWriter) Write(p []byte) (n int, err error) {
+	var logTimestamp int64
+	var logEntry map[string]interface{}
+
+	// Zap event inn (JSON)
+	if err := json.Unmarshal(p, &logEntry); err != nil {
+		logTimestamp = time.Now().Unix()
+	} else {
+		// Hent timestamp fra "time" (se encoder under)
+		if tsStr, ok := logEntry["time"].(string); ok {
+			// ISO8601 fra zapcore.ISO8601TimeEncoder -> 2006-01-02T15:04:05.000Z0700
+			t, parseErr := time.Parse(time.RFC3339Nano, tsStr)
+			if parseErr != nil {
+				// fallback – enkelte ISO8601-varianter
+				if t2, e2 := time.Parse("2006-01-02T15:04:05.000Z0700", tsStr); e2 == nil {
+					logTimestamp = t2.Unix()
+				} else {
+					logTimestamp = time.Now().Unix()
+				}
+			} else {
+				logTimestamp = t.Unix()
+			}
+		} else {
+			logTimestamp = time.Now().Unix()
+		}
+
+		// Rydd vekk felt vi ikke vil sende i "event"
+		delete(logEntry, "time")
+		delete(logEntry, "caller")
+		delete(logEntry, "meta")
+	}
+
+	payload := map[string]interface{}{
+		"event":      logEntry,
+		"time":       logTimestamp,
+		"host":       w.Host,
+		"source":     w.Source,
+		"sourcetype": w.SourceType,
+		"index":      w.Index,
+	}
+
+	if w.PrintBody {
+		pretty, _ := json.MarshalIndent(payload, "", "  ")
+		fmt.Println("Sending to Splunk:", string(pretty))
+	}
+
+	resp, reqErr := w.Client.R().
+		SetHeader("Authorization", "Splunk "+w.Token).
+		SetHeader("Content-Type", "application/json").
+		SetBody(payload).
+		Post(w.URL + "/services/collector/event")
+
+	// Ikke blokker appen ved feil
+	if reqErr != nil {
+		return len(p), nil
+	}
+	if resp.StatusCode() != 200 {
+		fmt.Println("Failed to send to Splunk:", resp.Status())
+	}
+	return len(p), nil
 }
 
 func InitLogger(logDir string) error {
-
-	// --- Splunk ---
+	// --- Encodere ---
 	jsonEncoder := zapcore.NewJSONEncoder(zapcore.EncoderConfig{
-		TimeKey:      "timestamp",
-		LevelKey:     "level",
-		MessageKey:   "message",
-		CallerKey:    "caller",
-		EncodeTime:   zapcore.ISO8601TimeEncoder,
-		EncodeLevel:  zapcore.LowercaseLevelEncoder,
-		EncodeCaller: zapcore.ShortCallerEncoder,
+		TimeKey:       "time", // VIKTIG: matcher writer
+		LevelKey:      "level",
+		MessageKey:    "message",
+		CallerKey:     "caller",
+		EncodeTime:    zapcore.ISO8601TimeEncoder,
+		EncodeLevel:   zapcore.LowercaseLevelEncoder,
+		EncodeCaller:  zapcore.ShortCallerEncoder,
+		LineEnding:    zapcore.DefaultLineEnding,
+		StacktraceKey: "",
+		NameKey:       "",
+		FunctionKey:   "",
 	})
 
 	consoleEncoder := zapcore.NewConsoleEncoder(zapcore.EncoderConfig{
-		TimeKey:      "timestamp",
+		TimeKey:      "time",
 		LevelKey:     "level",
 		MessageKey:   "message",
 		CallerKey:    "caller",
@@ -44,48 +134,64 @@ func InitLogger(logDir string) error {
 		EncodeCaller: zapcore.ShortCallerEncoder,
 	})
 
-	splunkURL := viper.GetString("splunk_url")
-	splunkToken := viper.GetString("splunk_token")
-	splunkIndex := viper.GetString("splunk_index")
-	splunkSource := "aws.s3"
-	splunkSourceType := "netbird:traffic"
-
-	splunkWriter := NewSplunkHECWriter(
-		splunkURL,
-		splunkToken,
-		splunkIndex,
-		splunkSource,
-		splunkSourceType,
-		5*time.Second,
-	)
-
-	splunkCore := zapcore.NewCore(jsonEncoder, zapcore.AddSync(splunkWriter), zapcore.InfoLevel)
-	Splunk = zap.New(splunkCore, zap.AddCaller()).Sugar()
-
-	// --- CONSOLE & FILE ---
-
-	// --- File core ---
-	// file, err := os.OpenFile(logDir+"/app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	// if err != nil {
-	// 	return err
-	// }
-
+	// --- APP: fil + konsoll ---
 	lumberJack := &lumberjack.Logger{
 		Filename:   logDir + "/app.log",
-		MaxSize:    100,
-		MaxBackups: 5,
+		MaxSize:    1000,
+		MaxBackups: 10,
 		MaxAge:     30,
 		Compress:   false,
 	}
-
 	fileCore := zapcore.NewCore(jsonEncoder, zapcore.AddSync(lumberJack), zapcore.InfoLevel)
-
-	// --- Console core ---
 	consoleCore := zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel)
-
-	// --- Samlet App-logger til fil og konsoll ---
 	appCore := zapcore.NewTee(fileCore, consoleCore)
 	Log = zap.New(appCore, zap.AddCaller()).Sugar()
+
+	host := viper.GetString("splunk_host")
+	if host == "" {
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "unknown-host"
+		}
+		host = hostname
+	}
+
+	// --- SPLUNK TRAFFIC ---
+	splunkURL := viper.GetString("splunk.url")
+	splunkToken := viper.GetString("splunk.traffic_token")
+	splunkSource := viper.GetString("splunk.traffic_source")
+	if splunkSource == "" {
+		splunkSource = "netbird"
+	}
+
+	trafficIndex := viper.GetString("splunk.traffic_index")
+	trafficSourceType := viper.GetString("splunk.traffic_source_type")
+	if trafficSourceType == "" {
+		trafficSourceType = "netbird:traffic"
+	}
+
+	if splunkURL != "" && splunkToken != "" && trafficIndex != "" {
+		trafficWriter := NewSplunkHECWriter(splunkURL, splunkToken, trafficIndex, splunkSource, trafficSourceType, host, 5*time.Second)
+		trafficCore := zapcore.NewCore(jsonEncoder, zapcore.AddSync(trafficWriter), zapcore.InfoLevel)
+		SplunkTraffic = zap.New(trafficCore, zap.AddCaller()).Sugar()
+	} else {
+		SplunkTraffic = zap.NewNop().Sugar()
+	}
+
+	// --- SPLUNK AUDIT ---
+	auditIndex := viper.GetString("splunk.audit_index")
+	auditSourceType := viper.GetString("splunk_audit_source")
+	if auditSourceType == "" {
+		auditSourceType = "netbird:audit"
+	}
+
+	if splunkURL != "" && splunkToken != "" && auditIndex != "" {
+		auditWriter := NewSplunkHECWriter(splunkURL, splunkToken, auditIndex, splunkSource, auditSourceType, host, 5*time.Second)
+		auditCore := zapcore.NewCore(jsonEncoder, zapcore.AddSync(auditWriter), zapcore.InfoLevel)
+		SplunkAudit = zap.New(auditCore, zap.AddCaller()).Sugar()
+	} else {
+		SplunkAudit = zap.NewNop().Sugar()
+	}
 
 	return nil
 }
@@ -94,100 +200,10 @@ func Sync() {
 	if Log != nil {
 		_ = Log.Sync()
 	}
-	if Splunk != nil {
-		_ = Splunk.Sync()
+	if SplunkTraffic != nil {
+		_ = SplunkTraffic.Sync()
 	}
-}
-
-// func getWriter(path string) *os.File {
-// 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-// 	if err != nil {
-// 		panic("unable to open log file: " + err.Error())
-// 	}
-// 	return f
-// }
-
-type SplunkHECWriter struct {
-	URL        string
-	Token      string
-	Index      string
-	Source     string
-	SourceType string
-	Client     *resty.Client
-}
-
-func NewSplunkHECWriter(url, token, index, source, sourcetype string, timeout time.Duration) *SplunkHECWriter {
-	return &SplunkHECWriter{
-		URL:        url,
-		Token:      token,
-		Index:      index,
-		Source:     source,
-		SourceType: sourcetype,
-		Client: resty.New().
-			SetTimeout(timeout),
+	if SplunkAudit != nil {
+		_ = SplunkAudit.Sync()
 	}
-}
-
-func (w *SplunkHECWriter) Write(p []byte) (n int, err error) {
-	var logTimestamp int64
-	var logEntry map[string]interface{}
-
-	// Unmarshal original Zap event
-	if err := json.Unmarshal(p, &logEntry); err != nil {
-		logTimestamp = time.Now().Unix()
-	} else {
-		// Extract timestamp
-		if tsStr, ok := logEntry["time"].(string); ok {
-			t, err := time.Parse(time.RFC3339, tsStr)
-			if err == nil {
-				logTimestamp = t.Unix()
-			} else {
-				logTimestamp = time.Now().Unix()
-			}
-		} else {
-			logTimestamp = time.Now().Unix()
-		}
-
-		// Remove unwanted fields from event payload
-		delete(logEntry, "time")
-		delete(logEntry, "timestamp")
-		delete(logEntry, "caller")
-	}
-
-	// Build Splunk payload
-	payload := map[string]interface{}{
-		"event":      logEntry,
-		"time":       logTimestamp,
-		"host":       "netbird-test-logger",
-		"source":     w.Source,
-		"sourcetype": w.SourceType,
-		"index":      w.Index,
-	}
-
-	prettyPayload, _ := json.MarshalIndent(payload, "", "  ")
-	fmt.Println("Sending to Splunk:", string(prettyPayload))
-
-	// Send to Splunk HEC using Resty
-	resp, err := w.Client.R().
-		SetHeader("Authorization", "Splunk "+w.Token).
-		SetHeader("Content-Type", "application/json").
-		SetBody(payload).
-		Post(w.URL + "/services/collector/event")
-
-	// Log response from Splunk
-	if resp.StatusCode() != 200 {
-		fmt.Println("Failed to send to Splunk:", resp.Status())
-	}
-
-	if err != nil {
-		// Fail silently — do not block app
-		return len(p), nil
-	}
-
-	if resp.StatusCode() != 200 {
-		// Optionally log here
-		return len(p), nil
-	}
-
-	return len(p), nil
 }

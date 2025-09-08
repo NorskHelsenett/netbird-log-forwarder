@@ -1,7 +1,6 @@
 package services
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -12,18 +11,21 @@ import (
 	"github.com/NorskHelsenett/netbird-log-forwarder/internal/logger"
 	"github.com/NorskHelsenett/netbird-log-forwarder/pkg/models/apicontracts"
 	"github.com/go-playground/validator/v10"
+	"github.com/spf13/viper"
+	"go.uber.org/zap"
 )
 
 func ProcessTrafficEvent(request apicontracts.TrafficEvent) (any, error) {
 
-	// valid := ValidateRequest(&request)
-
-	// if valid != nil {
-	// 	return nil, valid
+	// jsonBytes, err := json.MarshalIndent(request, "", "  ")
+	// if err != nil {
+	// 	fmt.Printf("Failed to marshal request: %v\n", err)
+	// } else {
+	// 	fmt.Printf("Request: %s\n", string(jsonBytes))
 	// }
 
 	if !SplunktWorthy(request) {
-		return nil, fmt.Errorf("event is not splunk-worthy")
+		return nil, fmt.Errorf("not_splunk_worthy")
 	}
 
 	sourcePeer, _ := netbird.GlobalPeerCache.GetPeerByID(request.Meta.SourceID)
@@ -41,29 +43,27 @@ func ProcessTrafficEvent(request apicontracts.TrafficEvent) (any, error) {
 
 	exitNode, _ := netbird.GlobalPeerCache.GetPeerByID(request.Meta.ReporterID)
 
+	xlateMap := viper.GetStringMapString("x-late")
+	xlateIp := xlateMap[exitNode.Hostname]
+	if xlateIp != "" {
+		srcIp = xlateIp
+	}
+
 	splunkEvent := apicontracts.SplunkTrafficEvent{
 		Time:       unixTime,
 		Protocol:   protocols.ProtocolsMap[request.Meta.Protocol],
-		SrcIP:      srcIp,
+		SrcIP:      srcIp, // xlate
 		SrcPort:    srcPortInt,
 		SourceName: sourceName,
 		Email:      user.Email,
 		DstIP:      dstIp,
 		DstPort:    dstPortInt,
 		ExitNode:   exitNode.Hostname,
+		Message:    request.Message,
 	}
 
-	jsonBytes, err := json.MarshalIndent(splunkEvent, "", "  ")
-
-	if err != nil {
-		fmt.Println("Failed to marshal event:", err)
-	} else {
-		fmt.Println(string(jsonBytes))
-	}
-
-	// logger.Log.Infow("netbird traffic event", "event", splunkEvent)
-	logger.Splunk.Infow(
-		"netbird traffic event",
+	logger.SplunkTraffic.Infow(
+		request.Message,
 		"time", splunkEvent.Time,
 		"protocol", splunkEvent.Protocol,
 		"src_ip", splunkEvent.SrcIP,
@@ -79,6 +79,50 @@ func ProcessTrafficEvent(request apicontracts.TrafficEvent) (any, error) {
 
 }
 
+func ProcessAuditEvent(ev apicontracts.AuditEventEnvelope) (any, error) {
+
+	initator := ev.InitiatorID
+	target := ev.TargetID
+	netbirdInitiatorUser, _ := netbird.GlobalUserCache.GetUserByID(ev.InitiatorID)
+
+	if netbirdInitiatorUser.Name != "" {
+		initator = netbirdInitiatorUser.Name
+	}
+
+	netbirdTargetUser, _ := netbird.GlobalUserCache.GetUserByID(ev.TargetID)
+	if netbirdTargetUser.Name != "" {
+		target = netbirdTargetUser.Name
+	}
+
+	unixTime := float64(ev.Timestamp.UnixNano()) / 1e9
+
+	// jsonBytes, err := json.MarshalIndent(ev, "", "  ")
+	// if err != nil {
+	// 	fmt.Printf("Failed to marshal AuditEventEnvelope: %v\n", err)
+	// } else {
+	// 	fmt.Printf("AuditEventEnvelope: %s\n", string(jsonBytes))
+	// }
+
+	fields := []any{
+		zap.Float64("time", unixTime),
+		zap.String("message", ev.Message),
+		zap.String("initiator_id", initator),
+		zap.String("target_id", target),
+		zap.ByteString("raw_event", ev.Raw),
+	}
+	for k, v := range ev.Extra {
+		fields = append(fields, zap.Any(k, v))
+	}
+
+	logger.SplunkAudit.Infow(
+		ev.Message,
+		fields...,
+	)
+
+	return ev, nil
+
+}
+
 func ValidateRequest(request *apicontracts.TrafficEvent) error {
 	validate := validator.New(validator.WithRequiredStructEnabled())
 	err := validate.Struct(*request)
@@ -91,45 +135,76 @@ func ValidateRequest(request *apicontracts.TrafficEvent) error {
 }
 
 func SplunktWorthy(request apicontracts.TrafficEvent) bool {
-	if request.Meta == (apicontracts.TrafficMeta{}) {
-		return false
-	}
+	// if request.Meta == (apicontracts.TrafficMeta{}) {
+	// 	return false
+	// }
 	meta := request.Meta
 
-	if meta.Direction != "INGRESS" {
-		return false
+	baselogger := logger.Log.Desugar()
+
+	// var obj map[string]any
+	// if err := json.Unmarshal(request, &obj); err == nil {
+
+	// }
+
+	if meta.DestinationName != "" && meta.Direction == "INGRESS" && meta.DestinationType == "PEER" {
+		// if meta.DestinationName != "" && (meta.Direction == "INGRESS" || meta.Direction == "EGRESS") && meta.DestinationType == "PEER" {
+		ipString, _, err := net.SplitHostPort(meta.DestinationAddr)
+		if err != nil {
+			logger.Log.Warnf("Failed to split host and port: %v", err)
+		}
+
+		ip := net.ParseIP(ipString)
+		if ip == nil {
+			logger.Log.Warnf("Invalid IP address: %s", ipString)
+		}
+
+		_, network, err := net.ParseCIDR("100.110.0.0/16")
+		if err != nil {
+			logger.Log.Errorf("Failed to parse CIDR: %v", err)
+		}
+
+		if network.Contains(ip) {
+			// logger.Log.Infoln("--- Traffic event rejected ---")
+			// baselogger.Info("incoming_event", zap.Any("event", request))
+			return false
+		}
+		logger.Log.Infoln("--- Traffic event accepted ---")
+		baselogger.Info("incoming_event", zap.Any("event", request))
+		return true
 	}
 
-	if meta.DestinationType != "PEER" {
-		return false
-	}
+	// if meta.Direction != "INGRESS" {
+	// 	return false
+	// }
 
-	if meta.DestinationName == "" {
-		return false
-	}
+	// if meta.DestinationType != "PEER" {
+	// 	return false
+	// }
 
-	addrStr := meta.DestinationAddr
+	// if meta.DestinationName == "" {
+	// 	return false
+	// }
 
-	// fmt.Println("Destination Address:", addrStr)
+	// ipString, _, err := net.SplitHostPort(meta.DestinationAddr)
+	// if err != nil {
+	// 	logger.Log.Warnf("Failed to split host and port: %v", err)
+	// }
 
-	ipAddress, _, err := net.SplitHostPort(addrStr)
-	if err != nil {
-		// håndter feil
-	}
+	// ip := net.ParseIP(ipString)
+	// if ip == nil {
+	// 	logger.Log.Warnf("Invalid IP address: %s", ipString)
+	// }
 
-	ip := net.ParseIP(ipAddress)
-	if ip == nil {
-		// håndter ugyldig IP
-	}
+	// _, network, err := net.ParseCIDR("100.110.0.0/16")
+	// if err != nil {
+	// 	logger.Log.Errorf("Failed to parse CIDR: %v", err)
+	// }
 
-	_, network, err := net.ParseCIDR("100.64.0.0/10")
-	if err != nil {
-		// håndter feil
-	}
-
-	if network.Contains(ip) {
-		return false
-	}
-
-	return true
+	// if network.Contains(ip) {
+	// 	return false
+	// }
+	logger.Log.Infoln("--- Traffic event rejected ---")
+	baselogger.Info("incoming_event", zap.Any("event", request))
+	return false
 }

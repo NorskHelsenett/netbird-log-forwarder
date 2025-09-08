@@ -1,49 +1,95 @@
 package handlers
 
 import (
-	// "net/http"
-
-	"fmt"
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 
-	// "github.com/NorskHelsenett/netbird-log-forwarder/internal/services"
-	// "github.com/NorskHelsenett/netbird-log-forwarder/pkg/models/apicontracts"
 	"github.com/NorskHelsenett/netbird-log-forwarder/internal/logger"
+	"github.com/NorskHelsenett/netbird-log-forwarder/internal/services"
+	"github.com/NorskHelsenett/netbird-log-forwarder/pkg/models/apicontracts"
 	"github.com/gin-gonic/gin"
 )
 
-func RecieveEvent(ginContext *gin.Context) {
-	var request any //apicontracts.TrafficEvent
-	err := ginContext.ShouldBindJSON(&request)
+type messagePreview struct {
+	Message string `json:"message"`
+}
 
+func RecieveEvent(ginContext *gin.Context) {
+	requestBody, err := io.ReadAll(ginContext.Request.Body)
 	if err != nil {
-		ginContext.Error(err)
-		ginContext.JSON(http.StatusBadRequest, gin.H{"message": "Could not parse incomming request"})
-		fmt.Println(err)
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": "could not read request body"})
 		return
 	}
+	ginContext.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
-	logger.Log.Infow("Received request", "request", request)
-	// logger.Log.Infoln(request)
+	// baselogger := logger.Log.Desugar()
 
-	// jsonBytes, err := json.MarshalIndent(request, "", "  ")
-	// if err != nil {
-	// 	fmt.Println("Failed to marshal request:", err)
-	// } else {
-	// 	logger.Log.Infoln(string(jsonBytes))
-	// 	// fmt.Println("Request received:\n", string(jsonBytes))
+	// var obj map[string]any
+	// if err := json.Unmarshal(requestBody, &obj); err == nil {
+	// 	baselogger.Info("incoming_event", zap.Any("event", obj))
 	// }
 
-	// var response any
-	httpStatus := http.StatusOK
+	var preview messagePreview
+	_ = json.Unmarshal(requestBody, &preview)
 
-	// response, err = services.ProcessTrafficEvent(request)
-	// if err != nil {
-	// 	ginContext.Error(err)
-	// 	ginContext.JSON(http.StatusInternalServerError, gin.H{"message": "ERROR: " + err.Error()})
-	// 	return
-	// }
+	switch {
+	case looksLikeTrafficEvent(preview.Message):
 
-	ginContext.JSON(httpStatus, gin.H{"message": "Event processed successfully"})
+		logger.Log.Debugln("Processing traffic event")
+		var event apicontracts.TrafficEvent
+		eventBody := json.NewDecoder(bytes.NewReader(requestBody))
+		eventBody.DisallowUnknownFields()
 
+		if err := eventBody.Decode(&event); err != nil {
+			ginContext.JSON(http.StatusBadRequest, gin.H{"message": "invalid traffic payload", "error": err.Error()})
+			return
+		}
+		_, err := services.ProcessTrafficEvent(event)
+		if err != nil {
+			if err.Error() == "not_splunk_worthy" {
+				ginContext.JSON(http.StatusAccepted, gin.H{"status": "ok"})
+				return
+			}
+			ginContext.Error(err)
+			ginContext.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+			return
+		}
+
+		ginContext.JSON(http.StatusAccepted, gin.H{"status": "ok", "handled_as": "traffic"})
+		return
+	default:
+		logger.Log.Debugln("Processing audit event")
+		// var prettyBody bytes.Buffer
+		// if err := json.Indent(&prettyBody, requestBody, "", "  "); err != nil {
+		// 	logger.Log.Errorf("Failed to pretty-print request body: %v", err)
+		// }
+		// else {
+		// 	logger.Log.Infof("Received request body:\n%s", prettyBody.String())
+		// }
+
+		var event apicontracts.AuditEventEnvelope
+
+		if err := json.Unmarshal(requestBody, &event); err != nil {
+			logger.SplunkAudit.Errorw("failed to decode", "error", err)
+			return
+		}
+		_, err = services.ProcessAuditEvent(event)
+		if err != nil {
+
+			ginContext.Error(err)
+			ginContext.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+			return
+		}
+
+		ginContext.JSON(http.StatusAccepted, gin.H{"status": "ok", "handled_as": "audit"})
+		return
+
+	}
+}
+
+func looksLikeTrafficEvent(msg string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(msg)), "TYPE_")
 }

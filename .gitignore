@@ -4,3 +4,4 @@ s3.py
 config.yaml
 secrets.yaml
 logs/*
+test.json
