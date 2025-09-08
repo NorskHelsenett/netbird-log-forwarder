@@ -9,9 +9,8 @@ import (
 
 func InitHttpServer(token string) {
 	gin.SetMode(gin.ReleaseMode)
-	server := gin.New() // or gin.Default()
+	server := gin.New()
 
-	// token := viper.GetString("api.auth_token")
 	server.Use(gin.Recovery())
 	server.Use(middleware.TokenAuthMiddleware(token))
 	routes.SetupRoutes(server)

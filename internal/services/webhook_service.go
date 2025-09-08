@@ -17,13 +17,6 @@ import (
 
 func ProcessTrafficEvent(request apicontracts.TrafficEvent) (any, error) {
 
-	// jsonBytes, err := json.MarshalIndent(request, "", "  ")
-	// if err != nil {
-	// 	fmt.Printf("Failed to marshal request: %v\n", err)
-	// } else {
-	// 	fmt.Printf("Request: %s\n", string(jsonBytes))
-	// }
-
 	if !SplunktWorthy(request) {
 		return nil, fmt.Errorf("not_splunk_worthy")
 	}
@@ -96,13 +89,6 @@ func ProcessAuditEvent(ev apicontracts.AuditEventEnvelope) (any, error) {
 
 	unixTime := float64(ev.Timestamp.UnixNano()) / 1e9
 
-	// jsonBytes, err := json.MarshalIndent(ev, "", "  ")
-	// if err != nil {
-	// 	fmt.Printf("Failed to marshal AuditEventEnvelope: %v\n", err)
-	// } else {
-	// 	fmt.Printf("AuditEventEnvelope: %s\n", string(jsonBytes))
-	// }
-
 	fields := []any{
 		zap.Float64("time", unixTime),
 		zap.String("message", ev.Message),
@@ -135,17 +121,8 @@ func ValidateRequest(request *apicontracts.TrafficEvent) error {
 }
 
 func SplunktWorthy(request apicontracts.TrafficEvent) bool {
-	// if request.Meta == (apicontracts.TrafficMeta{}) {
-	// 	return false
-	// }
 	meta := request.Meta
-
 	baselogger := logger.Log.Desugar()
-
-	// var obj map[string]any
-	// if err := json.Unmarshal(request, &obj); err == nil {
-
-	// }
 
 	if meta.DestinationName != "" && meta.Direction == "INGRESS" && meta.DestinationType == "PEER" {
 		// if meta.DestinationName != "" && (meta.Direction == "INGRESS" || meta.Direction == "EGRESS") && meta.DestinationType == "PEER" {
@@ -174,36 +151,6 @@ func SplunktWorthy(request apicontracts.TrafficEvent) bool {
 		return true
 	}
 
-	// if meta.Direction != "INGRESS" {
-	// 	return false
-	// }
-
-	// if meta.DestinationType != "PEER" {
-	// 	return false
-	// }
-
-	// if meta.DestinationName == "" {
-	// 	return false
-	// }
-
-	// ipString, _, err := net.SplitHostPort(meta.DestinationAddr)
-	// if err != nil {
-	// 	logger.Log.Warnf("Failed to split host and port: %v", err)
-	// }
-
-	// ip := net.ParseIP(ipString)
-	// if ip == nil {
-	// 	logger.Log.Warnf("Invalid IP address: %s", ipString)
-	// }
-
-	// _, network, err := net.ParseCIDR("100.110.0.0/16")
-	// if err != nil {
-	// 	logger.Log.Errorf("Failed to parse CIDR: %v", err)
-	// }
-
-	// if network.Contains(ip) {
-	// 	return false
-	// }
 	logger.Log.Infoln("--- Traffic event rejected ---")
 	baselogger.Info("incoming_event", zap.Any("event", request))
 	return false

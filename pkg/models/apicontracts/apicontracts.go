@@ -140,15 +140,14 @@ func (e *AuditEventEnvelope) UnmarshalJSON(b []byte) error {
 
 	e.Extra = make(map[string]any)
 
-	// Reserverte feltnavn som ikke må overskrives
+	// Reserved keys that should not be overwritten in Extra
 	reserved := map[string]struct{}{
 		"timestamp":   {},
 		"message":     {},
 		"initiatorid": {},
-		// "targetid":    {},
 	}
 
-	// 1) Flate ut Meta -> Extra (hvis Meta er objekt)
+	// 1) Extract "Meta" object (if any) into Extra with "meta_" prefix
 	if mv, ok := m["meta"]; ok {
 		var metaObj map[string]json.RawMessage
 		if err := json.Unmarshal(mv, &metaObj); err == nil {
@@ -159,26 +158,18 @@ func (e *AuditEventEnvelope) UnmarshalJSON(b []byte) error {
 				}
 				kl := strings.ToLower(k)
 				if _, isReserved := reserved[kl]; isReserved {
-					e.Extra["meta_"+k] = anyv // ikke overskriv reserverte
+					e.Extra["meta_"+k] = anyv // don't overwrite reserved
 				} else if _, exists := e.Extra[k]; exists {
-					e.Extra["meta_"+k] = anyv // kollisjon: prefiksér
+					e.Extra["meta_"+k] = anyv
 				} else {
 					e.Extra[k] = anyv
 				}
 			}
 		}
-		// else {
-		// 	// Meta var ikke et objekt → lagre som "Meta" i Extra
-		// 	var anyv any
-		// 	if err := json.Unmarshal(mv, &anyv); err != nil {
-		// 		anyv = string(mv)
-		// 	}
-		// 	e.Extra["Meta"] = anyv
-		// }
 		delete(m, "Meta")
 	}
 
-	// 2) Resten av ukjente toppnivå-felter -> Extra
+	// 2) The rest of the top-level keys into Extra
 	for k, raw := range m {
 		var anyv any
 		if err := json.Unmarshal(raw, &anyv); err != nil {
@@ -186,11 +177,11 @@ func (e *AuditEventEnvelope) UnmarshalJSON(b []byte) error {
 		}
 		kl := strings.ToLower(k)
 		if _, isReserved := reserved[kl]; isReserved {
-			e.Extra["extra_"+k] = anyv // sikkerhet mot overskriving
+			e.Extra["extra_"+k] = anyv // don't overwrite reserved
 			continue
 		}
 		if _, exists := e.Extra[k]; exists {
-			e.Extra["extra_"+k] = anyv // kollisjon: prefiksér
+			e.Extra["extra_"+k] = anyv // collision: prefix
 		} else {
 			e.Extra[k] = anyv
 		}

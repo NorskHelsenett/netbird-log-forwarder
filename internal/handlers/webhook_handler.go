@@ -25,13 +25,6 @@ func RecieveEvent(ginContext *gin.Context) {
 	}
 	ginContext.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
-	// baselogger := logger.Log.Desugar()
-
-	// var obj map[string]any
-	// if err := json.Unmarshal(requestBody, &obj); err == nil {
-	// 	baselogger.Info("incoming_event", zap.Any("event", obj))
-	// }
-
 	var preview messagePreview
 	_ = json.Unmarshal(requestBody, &preview)
 
@@ -62,14 +55,6 @@ func RecieveEvent(ginContext *gin.Context) {
 		return
 	default:
 		logger.Log.Debugln("Processing audit event")
-		// var prettyBody bytes.Buffer
-		// if err := json.Indent(&prettyBody, requestBody, "", "  "); err != nil {
-		// 	logger.Log.Errorf("Failed to pretty-print request body: %v", err)
-		// }
-		// else {
-		// 	logger.Log.Infof("Received request body:\n%s", prettyBody.String())
-		// }
-
 		var event apicontracts.AuditEventEnvelope
 
 		if err := json.Unmarshal(requestBody, &event); err != nil {
