@@ -75,6 +75,7 @@ func (w *SplunkHECWriter) Write(p []byte) (n int, err error) {
 		// Rydd vekk felt vi ikke vil sende i "event"
 		delete(logEntry, "time")
 		delete(logEntry, "caller")
+		delete(logEntry, "meta")
 	}
 
 	payload := map[string]interface{}{

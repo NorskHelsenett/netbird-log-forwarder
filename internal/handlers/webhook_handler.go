@@ -25,11 +25,19 @@ func RecieveEvent(ginContext *gin.Context) {
 	}
 	ginContext.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
+	// baselogger := logger.Log.Desugar()
+
+	// var obj map[string]any
+	// if err := json.Unmarshal(requestBody, &obj); err == nil {
+	// 	baselogger.Info("incoming_event", zap.Any("event", obj))
+	// }
+
 	var preview messagePreview
 	_ = json.Unmarshal(requestBody, &preview)
 
 	switch {
 	case looksLikeTrafficEvent(preview.Message):
+
 		logger.Log.Debugln("Processing traffic event")
 		var event apicontracts.TrafficEvent
 		eventBody := json.NewDecoder(bytes.NewReader(requestBody))
@@ -39,83 +47,49 @@ func RecieveEvent(ginContext *gin.Context) {
 			ginContext.JSON(http.StatusBadRequest, gin.H{"message": "invalid traffic payload", "error": err.Error()})
 			return
 		}
-
 		_, err := services.ProcessTrafficEvent(event)
 		if err != nil {
+			if err.Error() == "not_splunk_worthy" {
+				ginContext.JSON(http.StatusAccepted, gin.H{"status": "ok"})
+				return
+			}
 			ginContext.Error(err)
 			ginContext.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 			return
 		}
 
-		// logger.SplunkTraffic.Infow("traffic_event", "event", evt)
 		ginContext.JSON(http.StatusAccepted, gin.H{"status": "ok", "handled_as": "traffic"})
 		return
-	case looksLikeAuditEvent(preview.Message):
+	default:
 		logger.Log.Debugln("Processing audit event")
+		// var prettyBody bytes.Buffer
+		// if err := json.Indent(&prettyBody, requestBody, "", "  "); err != nil {
+		// 	logger.Log.Errorf("Failed to pretty-print request body: %v", err)
+		// }
+		// else {
+		// 	logger.Log.Infof("Received request body:\n%s", prettyBody.String())
+		// }
 
-		// Log the request body in pretty JSON format
-		var prettyBody bytes.Buffer
-		if err := json.Indent(&prettyBody, requestBody, "", "  "); err != nil {
-			logger.Log.Errorf("Failed to pretty-print request body: %v", err)
-		} else {
-			logger.Log.Infof("Received request body:\n%s", prettyBody.String())
-		}
+		var event apicontracts.AuditEventEnvelope
 
-		var event apicontracts.AuditEvent
-		eventBody := json.NewDecoder(bytes.NewReader(requestBody))
-		// eventBody.DisallowUnknownFields()
-
-		if err := eventBody.Decode(&event); err != nil {
-			ginContext.JSON(http.StatusBadRequest, gin.H{"message": "invalid audit payload", "error": err.Error()})
+		if err := json.Unmarshal(requestBody, &event); err != nil {
+			logger.SplunkAudit.Errorw("failed to decode", "error", err)
 			return
 		}
-
-		_, err := services.ProcessAuditEvent(event)
+		_, err = services.ProcessAuditEvent(event)
 		if err != nil {
+
 			ginContext.Error(err)
 			ginContext.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 			return
 		}
 
-		// logger.SplunkTraffic.Infow("traffic_event", "event", evt)
 		ginContext.JSON(http.StatusAccepted, gin.H{"status": "ok", "handled_as": "audit"})
 		return
-	default:
-		logger.Log.Debugln("Unknown event type")
-		var event any
-		eventBody := json.NewDecoder(bytes.NewReader(requestBody))
-		// eventBody.DisallowUnknownFields()
-		if err := eventBody.Decode(&event); err != nil {
-			ginContext.JSON(http.StatusBadRequest, gin.H{"message": "invalid audit payload", "error": err.Error()})
-			return
-		}
-		prettyJSON, err := json.MarshalIndent(event, "", "  ")
-		if err != nil {
-			logger.Log.Errorf("Failed to marshal event to pretty JSON: %v", err)
-		} else {
-			logger.Log.Infof("Unknown event type:\n%s", prettyJSON)
 
-		}
 	}
-
-	ginContext.JSON(http.StatusOK, gin.H{"message": "Event processed successfully"})
-
 }
 
 func looksLikeTrafficEvent(msg string) bool {
-	switch strings.ToUpper(strings.TrimSpace(msg)) {
-	case "TYPE_START", "TYPE_END", "TYPE_DROP":
-		return true
-	default:
-		return false
-	}
-}
-
-func looksLikeAuditEvent(msg string) bool {
-	switch strings.TrimSpace(msg) {
-	case "user blocked", "user unblocked", "peer approved":
-		return true
-	default:
-		return false
-	}
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(msg)), "TYPE_")
 }
