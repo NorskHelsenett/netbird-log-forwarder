@@ -106,7 +106,7 @@ jobs:
         run: |
           export HELM_VERSION=${VERSION#v*}
           ./yq e -i '.version = strenv(HELM_VERSION),.appVersion = strenv(VERSION)' charts/netbird-log-forwarder/Chart.yaml
-          ./yq e -i '.image.tag = strenv(VERSION),.image.repository = "ncr.sky.nhn.no/dcn/netbird-log-forwarder"' charts/netbird-log-forwarder/values.yaml
+          ./yq e -i '.image.tag = strenv(VERSION),.image.repository = "ncr.sky.nhn.no/norskhelsenett/helm/netbird-log-forwarder"' charts/netbird-log-forwarder/values.yaml
           helm package charts/netbird-log-forwarder 
           echo  ${{ secrets.GITHUB_TOKEN }} | helm registry login -u ${{ github.actor }} ghcr.io --password-stdin
           helm push netbird-log-forwarder-${HELM_VERSION}.tgz oci://ghcr.io/norskhelsenett/helm/
