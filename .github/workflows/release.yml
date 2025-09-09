@@ -81,33 +81,33 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # publish-helm:
-  #   if: github.ref_type == 'tag'
-  #   runs-on: ubuntu-latest
-  #   needs:
-  #     - create-oci-image
-  #   steps:
-  #     - uses: actions/checkout@v4
+  publish-helm:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    needs:
+      - create-oci-image
+    steps:
+      - uses: actions/checkout@v4
 
-  #     - name: Install helm
-  #       uses: azure/setup-helm@v1
-  #       with:
-  #         version: v3.16.4
+      - name: Install helm
+        uses: azure/setup-helm@v1
+        with:
+          version: v3.16.4
 
-  #     - name: install-yq
-  #       run: |
-  #         wget https://github.com/mikefarah/yq/releases/download/${VERSION}/${BINARY}.tar.gz -O - | tar xz && mv ${BINARY} yq && chmod +x yq
-  #       env:
-  #         VERSION: v4.44.5
-  #         BINARY: yq_linux_amd64
+      - name: install-yq
+        run: |
+          wget https://github.com/mikefarah/yq/releases/download/${VERSION}/${BINARY}.tar.gz -O - | tar xz && mv ${BINARY} yq && chmod +x yq
+        env:
+          VERSION: v4.44.5
+          BINARY: yq_linux_amd64
 
-  #     - name: Build helm chart
-  #       run: |
-  #         export HELM_VERSION=${VERSION#v*}
-  #         ./yq e -i '.version = strenv(HELM_VERSION),.appVersion = strenv(VERSION)' chart/ipam-api/Chart.yaml
-  #         ./yq e -i '.imapApi.tag = strenv(VERSION),.ipamApi.image = "ncr.sky.nhn.no/ghcr/vitistack/ipam-api"' chart/ipam-api/values.yaml
-  #         helm package chart/ipam-api 
-  #         echo  ${{ secrets.GITHUB_TOKEN }} | helm registry login -u ${{ github.actor }} ghcr.io --password-stdin
-  #         helm push ipam-api-${HELM_VERSION}.tgz oci://ghcr.io/vitistack/helm/
-  #       env:
-  #         VERSION: ${{ github.ref_name }}
+      - name: Build helm chart
+        run: |
+          export HELM_VERSION=${VERSION#v*}
+          ./yq e -i '.version = strenv(HELM_VERSION),.appVersion = strenv(VERSION)' charts/netbird-log-forwarder/Chart.yaml
+          ./yq e -i '.image.tag = strenv(VERSION),.image.repository = "ncr.sky.nhn.no/dcn/netbird-log-forwarder"' charts/netbird-log-forwarder/values.yaml
+          helm package charts/netbird-log-forwarder 
+          echo  ${{ secrets.GITHUB_TOKEN }} | helm registry login -u ${{ github.actor }} ghcr.io --password-stdin
+          helm push netbird-log-forwarder-${HELM_VERSION}.tgz oci://ghcr.io//NorskHelsenett/helm/
+        env:
+          VERSION: ${{ github.ref_name }}
