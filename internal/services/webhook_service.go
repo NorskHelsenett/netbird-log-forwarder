@@ -36,7 +36,7 @@ func ProcessTrafficEvent(request apicontracts.TrafficEvent) (any, error) {
 
 	exitNode, _ := netbird.GlobalPeerCache.GetPeerByID(request.Meta.ReporterID)
 
-	xlateMap := viper.GetStringMapString("x-late")
+	xlateMap := viper.GetStringMapString("xlate")
 	xlateIp := xlateMap[exitNode.Hostname]
 	if xlateIp != "" {
 		srcIp = xlateIp
