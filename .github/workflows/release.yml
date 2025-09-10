@@ -58,6 +58,7 @@ jobs:
           images: ghcr.io/NorskHelsenett/netbird-log-forwarder
           tags: |
             type=semver,pattern={{version}}
+            type=semver,pattern=v{{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
