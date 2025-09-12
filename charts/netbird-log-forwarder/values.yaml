@@ -44,6 +44,7 @@ configMap:
         posl-nhn-nbs02: 10.121.208.133
         posl-nhn-nbi01: 83.118.189.132
         posl-nhn-nbi02: 83.118.189.135
+        tos3-k8s-netbird: 10.28.2.4
       splunk:
         url: "https://splunk-hec.nhn.no"
         traffic_index: "dc_firewall"
