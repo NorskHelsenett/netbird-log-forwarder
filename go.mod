@@ -1,6 +1,6 @@
 module github.com/NorskHelsenett/netbird-log-forwarder
 
-go 1.24.4
+go 1.24.7
 
 require (
 	github.com/fsnotify/fsnotify v1.8.0
