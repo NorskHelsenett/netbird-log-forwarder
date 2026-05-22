@@ -101,6 +101,7 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     dns.nhn.no/override-infrastructure: '{"infrastructure":["helsenett","internett"]}'
+    dns.nhn.no/ignore: "true"
   hosts:
     - host: netbird-log-forwarder.dcn.nhn.no
       paths:
