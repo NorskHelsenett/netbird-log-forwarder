@@ -1,0 +1,30 @@
+{{- if .Values.httproute.enabled -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "netbird-log-forwarder.fullname" . }}
+  labels:
+    {{- include "netbird-log-forwarder.labels" . | nindent 4 }}
+  annotations:
+    gatewayapi-operator.vitistack.io/enabled: "true"
+    ipam.vitistack.io/zone: {{ .Values.httproute.zone }}
+    gatewayapi-operator.vitistack.io/cluster-issuer: {{ .Values.httproute.issuer }}
+spec:
+  parentRefs:
+    - name: {{ .Values.httproute.zone }}-{{ .Values.httproute.issuer }}
+      sectionName: {{ .Values.httproute.domain }}
+      namespace: gateways
+  hostnames:
+    - {{ .Values.httproute.domain }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ include "netbird-log-forwarder.fullname" $ }}
+          port: {{ .Values.service.port }}
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+{{- end }}
