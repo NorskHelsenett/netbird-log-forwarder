@@ -111,6 +111,13 @@ ingress:
       hosts:
         - netbird-log-forwarder.dcn.nhn.no
 
+# This block is for setting up the httproute for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/#httproute
+httproute:
+  enabled: true
+  zone: inet
+  issuer: letsencrypt-prod
+  domain: netbird-log-forwarder.dcn.nhn.no
+
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
