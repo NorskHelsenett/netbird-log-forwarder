@@ -9,6 +9,7 @@ metadata:
     gatewayapi-operator.vitistack.io/enabled: "true"
     ipam.vitistack.io/zone: {{ .Values.httproute.zone }}
     gatewayapi-operator.vitistack.io/cluster-issuer: {{ .Values.httproute.issuer }}
+    dns.nhn.no/override-infrastructure: '{"infrastructure":["helsenett","internett"]}'
 spec:
   parentRefs:
     - name: {{ .Values.httproute.zone }}-{{ .Values.httproute.issuer }}
